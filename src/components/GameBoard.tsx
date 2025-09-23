@@ -93,12 +93,48 @@ export const GameBoard = ({ size, difficulty, aiDelay }: GameBoardProps) => {
     return { winner: null, winningCells: [] };
   }, []);
 
+  // Minimax algorithm with alpha-beta pruning for impossible mode
+  const minimax = useCallback((board: Player[], depth: number, isMaximizing: boolean, alpha: number, beta: number, boardSize: number): number => {
+    const { winner } = checkWinner(board, boardSize);
+    
+    if (winner === 'O') return 10 - depth; // AI wins
+    if (winner === 'X') return depth - 10; // Player wins
+    if (board.every(cell => cell !== null) || depth >= 6) return 0; // Draw or max depth
+
+    if (isMaximizing) {
+      let maxEval = -Infinity;
+      for (let i = 0; i < board.length; i++) {
+        if (board[i] === null) {
+          board[i] = 'O';
+          const evaluation = minimax(board, depth + 1, false, alpha, beta, boardSize);
+          board[i] = null;
+          maxEval = Math.max(maxEval, evaluation);
+          alpha = Math.max(alpha, evaluation);
+          if (beta <= alpha) break; // Alpha-beta pruning
+        }
+      }
+      return maxEval;
+    } else {
+      let minEval = Infinity;
+      for (let i = 0; i < board.length; i++) {
+        if (board[i] === null) {
+          board[i] = 'X';
+          const evaluation = minimax(board, depth + 1, true, alpha, beta, boardSize);
+          board[i] = null;
+          minEval = Math.min(minEval, evaluation);
+          beta = Math.min(beta, evaluation);
+          if (beta <= alpha) break; // Alpha-beta pruning
+        }
+      }
+      return minEval;
+    }
+  }, [checkWinner]);
+
   const makeAiMove = useCallback((board: Player[], boardSize: number, difficultyLevel: string): number => {
     const availableMoves = board.map((cell, index) => cell === null ? index : null).filter(move => move !== null) as number[];
     
     if (availableMoves.length === 0) return -1;
 
-    // Simple AI for demo - can be enhanced with actual algorithms
     switch (difficultyLevel) {
       case 'easy':
         return availableMoves[Math.floor(Math.random() * availableMoves.length)];
@@ -122,9 +158,7 @@ export const GameBoard = ({ size, difficulty, aiDelay }: GameBoardProps) => {
         return availableMoves[Math.floor(Math.random() * availableMoves.length)];
       
       case 'hard':
-      case 'impossible':
-        // Enhanced AI logic would go here
-        // For now, using medium logic
+        // Enhanced logic for hard mode
         for (const move of availableMoves) {
           const testBoard = [...board];
           testBoard[move] = 'O';
@@ -151,10 +185,59 @@ export const GameBoard = ({ size, difficulty, aiDelay }: GameBoardProps) => {
         
         return availableMoves[Math.floor(Math.random() * availableMoves.length)];
       
+      case 'impossible':
+        // Advanced Minimax with alpha-beta pruning and strategic opening
+        const emptySpots = board.filter(spot => spot === null).length;
+        
+        // Opening move strategy - vary between center and corners
+        if (emptySpots === boardSize * boardSize - 1) { // First AI move
+          const center = Math.floor(boardSize / 2) * boardSize + Math.floor(boardSize / 2);
+          const corners = [0, boardSize - 1, boardSize * (boardSize - 1), boardSize * boardSize - 1];
+          const strategicMoves = [center, ...corners].filter(move => availableMoves.includes(move));
+          
+          // Randomly choose between center (60%) and corners (40%) to add unpredictability
+          if (Math.random() < 0.6 && availableMoves.includes(center)) {
+            return center;
+          } else if (strategicMoves.length > 0) {
+            return strategicMoves[Math.floor(Math.random() * strategicMoves.length)];
+          }
+        }
+        
+        // Use Minimax for all other moves
+        let bestScore = -Infinity;
+        let bestMoves: number[] = [];
+        
+        for (const move of availableMoves) {
+          const testBoard = [...board];
+          testBoard[move] = 'O';
+          const score = minimax(testBoard, 0, false, -Infinity, Infinity, boardSize);
+          
+          if (score > bestScore) {
+            bestScore = score;
+            bestMoves = [move];
+          } else if (score === bestScore) {
+            bestMoves.push(move);
+          }
+        }
+        
+        // Add slight randomness to prevent predictable patterns
+        if (bestMoves.length > 1 && Math.random() < 0.15) {
+          // 15% chance to pick a good but not best move to add variety
+          const goodMoves = availableMoves.filter(move => {
+            const testBoard = [...board];
+            testBoard[move] = 'O';
+            const score = minimax(testBoard, 0, false, -Infinity, Infinity, boardSize);
+            return score >= bestScore - 2; // Within 2 points of best
+          });
+          return goodMoves[Math.floor(Math.random() * goodMoves.length)];
+        }
+        
+        return bestMoves[Math.floor(Math.random() * bestMoves.length)];
+      
       default:
         return availableMoves[Math.floor(Math.random() * availableMoves.length)];
     }
-  }, [checkWinner]);
+  }, [checkWinner, minimax]);
 
   const handleCellClick = useCallback((index: number) => {
     if (gameState.board[index] || gameState.gameResult || isAiThinking) return;
